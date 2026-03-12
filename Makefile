@@ -6,7 +6,7 @@ test::
 	pytest tests/tests_flex_time
 
 format::
-	toml-sort pyproject.toml
+	uv run ruff check --fix .
 
 build:: format
 	uv build
