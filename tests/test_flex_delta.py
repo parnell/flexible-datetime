@@ -22,6 +22,22 @@ def test_parse_month_and_year_units():
     assert str(delta) == "1y2mo"
 
 
+def test_parse_duration_string_with_spaces():
+    delta = flex_delta("1y 1mo 1d")
+    assert delta.components["years"] == 1
+    assert delta.components["months"] == 1
+    assert delta.components["days"] == 1
+    assert str(delta) == "1y1mo1d"
+
+
+def test_parse_duration_string_with_commas():
+    delta = flex_delta("1y, 1mo, 1d")
+    assert delta.components["years"] == 1
+    assert delta.components["months"] == 1
+    assert delta.components["days"] == 1
+    assert str(delta) == "1y1mo1d"
+
+
 def test_parse_from_dict_and_kwargs():
     assert flex_delta({"duration": "2w1d"}) == flex_delta("2w1d")
     assert flex_delta(weeks=2, days=1) == flex_delta("2w1d")
