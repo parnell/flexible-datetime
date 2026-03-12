@@ -38,9 +38,28 @@ def test_parse_duration_string_with_commas():
     assert str(delta) == "1y1mo1d"
 
 
+def test_parse_duration_string_with_spaced_minus():
+    delta = flex_delta("1h - 30m")
+    assert delta == flex_delta("30m")
+    assert str(delta) == "30m"
+
+
 def test_parse_from_dict_and_kwargs():
     assert flex_delta({"duration": "2w1d"}) == flex_delta("2w1d")
     assert flex_delta(weeks=2, days=1) == flex_delta("2w1d")
+
+
+def test_parse_from_component_dict():
+    delta = flex_delta({"years": 1, "months": 1, "days": 1})
+    assert delta.components["years"] == 1
+    assert delta.components["months"] == 1
+    assert delta.components["days"] == 1
+    assert str(delta) == "1y1mo1d"
+
+
+def test_parse_from_component_dict_with_aliases():
+    delta = flex_delta({"y": 1, "mo": 1, "d": 1})
+    assert delta == flex_delta("1y1mo1d")
 
 
 def test_to_timedelta_for_fixed_units():

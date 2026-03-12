@@ -127,6 +127,7 @@ class flex_delta:
         cleaned = duration_str.strip().lower()
         if not cleaned:
             raise ValueError("Cannot parse an empty duration string.")
+        cleaned = re.sub(r"\s*([+-])\s*", r"\1", cleaned)
 
         components = cls._zero_components()
         position = 0
