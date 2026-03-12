@@ -1,5 +1,6 @@
 import re
 from datetime import date, datetime
+from enum import StrEnum
 from functools import total_ordering
 from typing import ClassVar
 
@@ -34,16 +35,40 @@ DT_FORMATS: dict[str, str] = {
 }
 
 
+class DatetimeOutputFormat(StrEnum):
+    """Output format for flex_datetime / FlexDateTime serialization.
+
+    minimal_datetime: Shortest possible datetime format.
+        Examples: YYYY, YYYY-MM, YYYY-MM-DD, YYYY-MM-DD HH:mm:ss
+
+    datetime: Full datetime format.
+        Example: YYYY-MM-DD HH:mm:ss
+
+    mask: Dict with datetime string and binary mask.
+        Example: {"dt": "2023-06-29T12:30:45+00:00", "mask": "0011111"}
+
+    components: Dict with individual component values.
+        Example: {"year": 2023, "month": 6, "day": 29}
+    """
+
+    minimal_datetime = "minimal_datetime"
+    datetime = "datetime"
+    mask = "mask"
+    components = "components"
+
+
 def default_mask(all_masked: bool = False) -> dict[str, bool]:
     return {field: all_masked for field in MASK_FIELDS}
 
 
-def mask_to_binary(mask: dict) -> str:
-    return "".join("1" if mask[field] else "0" for field in MASK_FIELDS)
+def mask_to_binary(mask: dict, fields: tuple[str, ...] | None = None) -> str:
+    keys = fields if fields is not None else mask.keys()
+    return "".join("1" if mask[field] else "0" for field in keys)
 
 
-def binary_to_mask(binary_str: str) -> dict[str, bool]:
-    return {field: bool(int(bit)) for field, bit in zip(MASK_FIELDS, binary_str)}
+def binary_to_mask(binary_str: str, fields: tuple[str, ...] = MASK_FIELDS) -> dict[str, bool]:
+    padded = binary_str.ljust(len(fields), "1")
+    return {field: bool(int(bit)) for field, bit in zip(fields, padded)}
 
 
 @total_ordering
@@ -139,6 +164,51 @@ class FlexDateTimeMixin:
 
         dt = arrow.Arrow(**components)
         return dt, mask
+
+    @classmethod
+    def _resolve_datetime_input(cls, *args, **kwargs) -> tuple:
+        """Resolve constructor arguments into an (Arrow, mask) pair."""
+        if args:
+            val = args[0]
+            if val is None:
+                raise ValueError("Cannot parse None.")
+            if isinstance(val, dict):
+                is_component = any(k in val for k in MASK_FIELDS)
+                if "dt" not in kwargs and is_component:
+                    return cls._components_from_dict(val)
+                dt = arrow.get(val["dt"])
+                mask = default_mask()
+                if "mask" in val:
+                    if isinstance(val["mask"], dict):
+                        mask = val["mask"]
+                    elif isinstance(val["mask"], str):
+                        mask = binary_to_mask(val["mask"])
+                return dt, mask
+            if isinstance(val, str):
+                return cls._components_from_str(val)
+            if isinstance(val, FlexDateTimeMixin):
+                return val.dt, val.mask
+            if isinstance(val, datetime | arrow.Arrow):
+                return arrow.get(val), default_mask()
+            if isinstance(val, date):
+                mask = default_mask()
+                mask.update({"hour": True, "minute": True, "second": True, "millisecond": True})
+                return arrow.get(val), mask
+            raise ValueError(f"Unsupported input: {val}")
+
+        if "dt" in kwargs:
+            dt = arrow.get(kwargs["dt"])
+            mask = default_mask()
+            if "mask" in kwargs:
+                if isinstance(kwargs["mask"], dict):
+                    mask = kwargs["mask"]
+                elif isinstance(kwargs["mask"], str):
+                    mask = binary_to_mask(kwargs["mask"])
+                else:
+                    raise ValueError(f"Invalid mask: {kwargs['mask']}")
+            return dt, mask
+
+        raise NotImplementedError(f"Unsupported input: {args} {kwargs}")
 
     @classmethod
     def from_str(cls, date_str: str, input_fmt: str | None = None):

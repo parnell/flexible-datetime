@@ -1,6 +1,4 @@
 import json
-from datetime import date, datetime
-from enum import StrEnum
 from typing import Any, ClassVar
 
 import arrow
@@ -14,31 +12,8 @@ from pydantic import (
 )
 
 import flexible_datetime.pydantic_arrow  # noqa: F401
+from flexible_datetime._base import DatetimeOutputFormat as OutputFormat
 from flexible_datetime._base import FlexDateTimeMixin, binary_to_mask, default_mask, mask_to_binary
-
-
-class OutputFormat(StrEnum):
-    """
-    Enum for the output formats of FlexDateTime.
-
-    minimal_datetime: Serialize as shortest possible datetime format.
-        Examples:
-            YYYY, YYYY-MM, YYYY-MM-DD, YYYY-MM-DD HH, YYYY-MM-DD HH:mm, YYYY-MM-DD HH:mm:ss
-
-    datetime: Serialize as full datetime format.
-        Example: YYYY-MM-DD HH:mm:ss
-
-    flex: Serialize as a dict format with the datetime and mask.
-        Example: {"dt": "2023-06-29T12:30:45+00:00", "mask": "0011111"}
-
-    components: Serialize as a dict format with masked components.
-        Example: {"year": 2023, "month": 6, "day": 29, "hour": 12, "minute": 30, "second": 45, "millisecond": 0}
-    """
-
-    minimal_datetime = "minimal_datetime"
-    datetime = "datetime"
-    flex = "flex"
-    components = "components"
 
 
 class FlexDateTime(FlexDateTimeMixin, BaseModel):
@@ -55,44 +30,18 @@ class FlexDateTime(FlexDateTimeMixin, BaseModel):
             raise ValueError("Cannot parse None as a FlexDateTime.")
         if not args and not kwargs:
             super().__init__(dt=arrow.utcnow())
-        elif args and isinstance(args[0], dict):
-            d = args[0]
-            is_dict_format = any(k in d for k in default_mask())
-            if "dt" not in kwargs and is_dict_format:
-                dt, mask = self._components_from_dict(d)
-                super().__init__(dt=dt, mask=mask)
-            else:
-                super().__init__(*args, **kwargs)
-        elif args and isinstance(args[0], str):
-            dt, mask = self._components_from_str(args[0])
+        elif args:
+            dt, mask = self._resolve_datetime_input(*args, **kwargs)
             super().__init__(dt=dt, mask=mask)
-        elif args and isinstance(args[0], FlexDateTimeMixin):
-            super().__init__(dt=args[0].dt, mask=args[0].mask)
-        elif args and isinstance(args[0], datetime):
-            super().__init__(dt=arrow.get(args[0]))
-        elif args and isinstance(args[0], arrow.Arrow):
-            super().__init__(dt=args[0])
-        elif args and isinstance(args[0], date):
-            super().__init__(
-                dt=arrow.get(args[0]),
-                mask=binary_to_mask("0001111"),
-            )
         else:
-            super().__init__(*args, **kwargs)
+            super().__init__(**kwargs)
 
     @model_validator(mode="before")
     def custom_validate_before(cls, values):
-        if not values:
+        if not values or isinstance(values, dict):
             return values
-        elif isinstance(values, datetime):
-            return {"dt": arrow.get(values)}
-        elif isinstance(values, arrow.Arrow):
-            return {"dt": values}
-        elif isinstance(values, str):
-            return {"dt": arrow.get(values)}
-        elif isinstance(values, FlexDateTimeMixin):
-            return {"dt": values.dt, "mask": values.mask}
-        return values
+        dt, mask = cls._resolve_datetime_input(values)
+        return {"dt": dt, "mask": mask}
 
     def model_dump(self, *args, **kwargs) -> dict[str, Any]:
         if self._default_output_format == OutputFormat.datetime:

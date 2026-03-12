@@ -32,7 +32,7 @@ def test_datetime(fdt: FlexDateTime):
 
 def test_flex(fdt: FlexDateTime):
     fdt.use_only(["year", "month", "day"])
-    fdt._output_format = OutputFormat.flex
+    fdt._output_format = OutputFormat.mask
     s = str(fdt.to_flex())
 
     assert str(fdt) == s

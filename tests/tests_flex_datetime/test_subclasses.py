@@ -90,7 +90,7 @@ def test_format_override():
     assert isinstance(ct.to_components(), dict)
 
     # Override to minimal
-    assert ct.to_str("short") == "2023-06-15"
+    assert ct.to_str("minimal_datetime") == "2023-06-15"
 
     # Override to ISO
     assert ct.to_str("datetime") == "2023-06-15T00:00:00+00:00"

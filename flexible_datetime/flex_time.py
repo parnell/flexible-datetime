@@ -10,7 +10,16 @@ import arrow
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
+from flexible_datetime._base import (
+    binary_to_mask as _base_binary_to_mask,
+)
+from flexible_datetime._base import (
+    mask_to_binary as _base_mask_to_binary,
+)
+
 FlextimeInput: TypeAlias = "str | int | time | datetime | arrow.Arrow | dict | flex_time | None"
+
+TIME_MASK_FIELDS: tuple[str, ...] = ("hour", "minute", "second", "microsecond")
 
 
 class OutputFormat(StrEnum):
@@ -50,14 +59,90 @@ class flex_time:
         "SSSSSS": "millisecond",
     }
 
-    _mask_fields: ClassVar[tuple[str, ...]] = (
-        "hour",
-        "minute",
-        "second",
-        "microsecond",
-    )
+    _mask_fields: ClassVar[tuple[str, ...]] = TIME_MASK_FIELDS
 
     _default_output_format: ClassVar[OutputFormat] = OutputFormat.short
+
+    @classmethod
+    def _resolve_input(
+        cls,
+        *args: FlextimeInput,
+        hour: int | None = None,
+        minute: int | None = None,
+        second: int | None = None,
+        microsecond: int | None = None,
+        **kwargs: Any,
+    ) -> tuple[time, dict]:
+        """Resolve constructor arguments into a (time, mask) pair."""
+        _default_mask = {"hour": False, "minute": False, "second": False, "microsecond": True}
+
+        if args and args[0] is None:
+            raise ValueError("Cannot parse None as a flex_time.")
+
+        if args and all(isinstance(arg, int) for arg in args):
+            if len(args) > 4:
+                raise ValueError(
+                    "No more than 4 time components (hour, minute, second, microsecond) can be specified"
+                )
+            time_args = list(args) + [0] * (4 - len(args))
+            t_hour, t_minute, t_second, t_microsecond = time_args[:4]
+            mask = {
+                "hour": False,
+                "minute": len(args) < 2,
+                "second": len(args) < 3,
+                "microsecond": True,
+            }
+            return time(t_hour, t_minute, t_second, t_microsecond), mask  # type: ignore
+
+        if any(x is not None for x in [hour, minute, second, microsecond]):
+            t = time(hour or 0, minute or 0, second or 0, microsecond or 0)
+            mask = {
+                "hour": hour is None,
+                "minute": minute is None,
+                "second": second is None,
+                "microsecond": True,
+            }
+            return t, mask
+
+        if args:
+            val = args[0]
+            if isinstance(val, dict):
+                is_dict_format = any(k in val for k in cls._mask_fields)
+                if "time" not in kwargs and is_dict_format:
+                    return cls._components_from_dict(val)
+                t_obj = cls._parse_time_str(val["time"])
+                mask = dict(_default_mask)
+                if "mask" in val and isinstance(val["mask"], dict):
+                    mask = val["mask"]
+                elif "mask" in val and isinstance(val["mask"], str):
+                    mask = cls.binary_to_mask(val["mask"])
+                return t_obj, mask
+            if isinstance(val, str):
+                return cls._components_from_str(val)
+            if isinstance(val, flex_time):
+                return val.time, val.mask
+            if isinstance(val, time):
+                return val, dict(_default_mask)
+            if isinstance(val, datetime | arrow.Arrow):
+                return arrow.get(val).time(), dict(_default_mask)
+            raise ValueError(f"Unsupported input: {args}")
+
+        if "time" in kwargs:
+            if isinstance(kwargs["time"], str):
+                t = cls._parse_time_str(kwargs["time"])
+            else:
+                t = kwargs["time"]
+            mask = dict(_default_mask)
+            if "mask" in kwargs:
+                if isinstance(kwargs["mask"], dict):
+                    mask = kwargs["mask"]
+                elif isinstance(kwargs["mask"], str):
+                    mask = cls.binary_to_mask(kwargs["mask"])
+                else:
+                    raise ValueError(f"Invalid mask: {kwargs['mask']}")
+            return t, mask
+
+        raise NotImplementedError(f"Unsupported input: {args} {kwargs}")
 
     def __init__(
         self,
@@ -68,90 +153,10 @@ class flex_time:
         microsecond: int | None = None,
         **kwargs: Any,
     ):
-        self.time = time(0, 0, 0, 0)
-        self.mask = {
-            "hour": False,
-            "minute": False,
-            "second": False,
-            "microsecond": True,
-        }
         self._output_format: OutputFormat | None = None
-
-        if args and args[0] is None:
-            raise ValueError("Cannot parse None as a flex_time.")
-
-        if len(args) > 0 and all(isinstance(arg, int) for arg in args):
-            if len(args) > 4:
-                raise ValueError(
-                    "No more than 4 time components (hour, minute, second, microsecond) can be specified"
-                )
-            time_args = list(args) + [0] * (4 - len(args))
-            t_hour, t_minute, t_second, t_microsecond = time_args[:4]
-            self.time = time(t_hour, t_minute, t_second, t_microsecond)  # type: ignore
-            self.mask["hour"] = False
-            self.mask["minute"] = len(args) < 2
-            self.mask["second"] = len(args) < 3
-            self.mask["microsecond"] = True
-            return
-
-        if any(x is not None for x in [hour, minute, second, microsecond]):
-            t_hour = 0 if hour is None else hour
-            t_minute = 0 if minute is None else minute
-            t_second = 0 if second is None else second
-            t_microsecond = 0 if microsecond is None else microsecond
-            self.time = time(t_hour, t_minute, t_second, t_microsecond)
-            self.mask["hour"] = hour is None
-            self.mask["minute"] = minute is None
-            self.mask["second"] = second is None
-            self.mask["microsecond"] = True
-            return
-
-        if args:
-            if isinstance(args[0], dict):
-                d = args[0]
-                is_dict_format = any(k in d for k in self._mask_fields)
-                if "time" not in kwargs and is_dict_format:
-                    t, mask = self._components_from_dict(d)
-                    self.time = t
-                    self.mask = mask
-                else:
-                    t_obj = self._parse_time_str(d["time"])
-                    self.time = t_obj
-                    if "mask" in d and isinstance(d["mask"], dict):
-                        self.mask = d["mask"]
-                    elif "mask" in d and isinstance(d["mask"], str):
-                        self.mask = self.binary_to_mask(d["mask"])
-            elif isinstance(args[0], str):
-                t, mask = self._components_from_str(args[0])
-                self.time = t
-                self.mask = mask
-            elif isinstance(args[0], flex_time):
-                self.time = args[0].time
-                self.mask = args[0].mask
-            elif isinstance(args[0], time):
-                self.time = args[0]
-                self.mask["microsecond"] = True
-            elif isinstance(args[0], datetime) or isinstance(args[0], arrow.Arrow):
-                self.time = arrow.get(args[0]).time()
-                self.mask["microsecond"] = True
-            else:
-                raise ValueError(f"Unsupported input: {args}")
-            return
-
-        if "time" in kwargs:
-            if isinstance(kwargs["time"], str):
-                self.time = self._parse_time_str(kwargs["time"])
-            else:
-                self.time = kwargs["time"]
-            if "mask" in kwargs:
-                if isinstance(kwargs["mask"], dict):
-                    self.mask = kwargs["mask"]
-                elif isinstance(kwargs["mask"], str):
-                    self.mask = self.binary_to_mask(kwargs["mask"])
-                else:
-                    raise ValueError(f"Invalid mask: {kwargs['mask']}")
-        else:
-            raise NotImplementedError(f"Unsupported input: {args} {kwargs}")
+        self.time, self.mask = self._resolve_input(
+            *args, hour=hour, minute=minute, second=second, microsecond=microsecond, **kwargs
+        )
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -337,12 +342,11 @@ class flex_time:
 
     @staticmethod
     def mask_to_binary(mask: dict) -> str:
-        return "".join("1" if mask[field] else "0" for field in mask)
+        return _base_mask_to_binary(mask)
 
     @classmethod
     def binary_to_mask(cls, binary_str: str) -> dict:
-        padded_binary = binary_str.ljust(len(cls._mask_fields), "1")
-        return {field: bool(int(bit)) for field, bit in zip(cls._mask_fields, padded_binary)}
+        return _base_binary_to_mask(binary_str, cls._mask_fields)
 
     def to_short_time(self) -> str:
         parts = [f"{self.time.hour:02d}"]

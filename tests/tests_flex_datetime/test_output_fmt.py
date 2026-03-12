@@ -10,14 +10,14 @@ def fdt():
 
 def test_minimal_datetime_ymd(fdt: flex_datetime):
     fdt.use_only("year", "month", "day")
-    fdt._output_format = FDTOutputFormat.short
+    fdt._output_format = FDTOutputFormat.minimal_datetime
 
     assert str(fdt) == "2000-01-02"
 
 
 def test_minimal_datetime_ym(fdt: flex_datetime):
     fdt.use_only("year", "month")
-    fdt._output_format = FDTOutputFormat.short
+    fdt._output_format = FDTOutputFormat.minimal_datetime
 
     assert str(fdt) == "2000-01"
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta
-from enum import StrEnum
 from typing import Any, ClassVar, TypeAlias, overload
 
 import arrow
@@ -10,95 +9,26 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
 import flexible_datetime.pydantic_arrow  # noqa: F401
-from flexible_datetime._base import FlexDateTimeMixin, binary_to_mask, default_mask
+from flexible_datetime._base import DatetimeOutputFormat as OutputFormat
+from flexible_datetime._base import FlexDateTimeMixin, default_mask
 
 FlextimeInput: TypeAlias = (
     "str | FlexDateTimeMixin | date | datetime | arrow.Arrow | dict | flex_datetime | None"
 )
 
 
-class OutputFormat(StrEnum):
-    """
-    Enum for the output formats of flex_datetime.
-
-    short_datetime: Serialize as shortest possible datetime format.
-        Examples:
-            YYYY, YYYY-MM, YYYY-MM-DD, YYYY-MM-DD HH, YYYY-MM-DD HH:mm, YYYY-MM-DD HH:mm:ss
-
-    datetime: Serialize as full datetime format.
-        Example: YYYY-MM-DD HH:mm:ss
-
-    mask: Serialize as JSON-compatible format.
-        Example: {"dt": "2023-06-29T12:30:45+00:00", "mask": "0011111"}
-
-    component: Serialize as JSON-compatible format with masked components.
-        Example: {"year": 2023, "month": 6, "day": 29, "hour": 12, "minute": 30, "second": 45, "millisecond": 0}
-    """
-
-    short = "short"
-    datetime = "datetime"
-    mask = "mask"
-    components = "components"
-
-
 class flex_datetime(FlexDateTimeMixin):
-    _default_output_format: ClassVar[OutputFormat] = OutputFormat.short
+    _default_output_format: ClassVar[OutputFormat] = OutputFormat.minimal_datetime
 
     def __init__(self, *args: FlextimeInput, **kwargs: Any):
-        self.dt = arrow.utcnow()
-        self.mask = default_mask()
         self._output_format: OutputFormat | None = None
-
         if args and args[0] is None:
             raise ValueError("Cannot parse None as a flex_datetime.")
         if not args and not kwargs:
+            self.dt = arrow.utcnow()
+            self.mask = default_mask()
             return
-        if args:
-            if isinstance(args[0], dict):
-                d = args[0]
-                is_dict_format = any(k in d for k in default_mask())
-                if "dt" not in kwargs and is_dict_format:
-                    dt, mask = self._components_from_dict(d)
-                    self.dt = dt
-                    self.mask = mask
-                else:
-                    self.dt = arrow.get(d["dt"])
-                    if "mask" in d and isinstance(d["mask"], dict):
-                        self.mask = d["mask"]
-                    elif "mask" in d and isinstance(d["mask"], str):
-                        self.mask = binary_to_mask(d["mask"])
-            elif isinstance(args[0], str):
-                dt, mask = self._components_from_str(args[0])
-                self.dt = dt
-                self.mask = mask
-            elif isinstance(args[0], FlexDateTimeMixin):
-                self.dt = args[0].dt
-                self.mask = args[0].mask
-            elif isinstance(args[0], datetime) or isinstance(args[0], arrow.Arrow):
-                self.dt = arrow.get(args[0])
-            elif isinstance(args[0], date):
-                self.dt = arrow.get(args[0])
-                self.mask.update({
-                    "hour": True,
-                    "minute": True,
-                    "second": True,
-                    "millisecond": True,
-                })
-            else:
-                raise ValueError(f"Unsupported input: {args}")
-            return
-
-        if "dt" in kwargs:
-            self.dt = arrow.get(kwargs["dt"])
-            if "mask" in kwargs:
-                if isinstance(kwargs["mask"], dict):
-                    self.mask = kwargs["mask"]
-                elif isinstance(kwargs["mask"], str):
-                    self.mask = binary_to_mask(kwargs["mask"])
-                else:
-                    raise ValueError(f"Invalid mask: {kwargs['mask']}")
-        else:
-            raise NotImplementedError(f"Unsupported input: {args} {kwargs}")
+        self.dt, self.mask = self._resolve_datetime_input(*args, **kwargs)
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -137,7 +67,7 @@ class flex_datetime(FlexDateTimeMixin):
             output_format = self._default_output_format
         if output_format == OutputFormat.datetime:
             return str(self.dt)
-        elif output_format == OutputFormat.short:
+        elif output_format == OutputFormat.minimal_datetime:
             return self.to_short_datetime()
         elif output_format == OutputFormat.components:
             return str(self.to_components())
@@ -231,7 +161,7 @@ class flex_datetime(FlexDateTimeMixin):
 
 
 short_datetime = type(
-    "short_datetime", (flex_datetime,), {"_default_output_format": OutputFormat.short}
+    "short_datetime", (flex_datetime,), {"_default_output_format": OutputFormat.minimal_datetime}
 )
 
 dict_datetime = type(
