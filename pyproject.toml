@@ -11,6 +11,7 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "arrow>=1.3.0",
+    "pre-commit>=4.5.1",
     "pydantic>=2.10.6",
 ]
 
@@ -33,3 +34,16 @@ dev = [
 
 [tool.mypy]
 plugins = ["pydantic.mypy"]
+
+[tool.ruff]
+line-length = 100
+preview = true
+
+[tool.ruff.lint]
+select = [
+    "I", # Enable all isort rules
+    "F", # Enable all flake8 rules
+    "UP", # Enable pyupgrade rules to modernize Python syntax
+    "B006", # Don't allow mutable default arguments. i.e. def f(x={})
+    "PLC0415", # import found outside of the top of the file
+]
